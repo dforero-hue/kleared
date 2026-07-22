@@ -405,7 +405,9 @@ export async function downloadCertPdf(d: CertRenderData, filename: string) {
   const margin = 24;
   const ratio = Math.min((pw - margin * 2) / canvas.width, (ph - margin * 2) / canvas.height);
   const w = canvas.width * ratio, h = canvas.height * ratio;
-  pdf.addImage(canvas.toDataURL("image/png"), "PNG", (pw - w) / 2, (ph - h) / 2, w, h);
+  // JPEG (not PNG) keeps the file in the hundreds-of-KB range instead of ~5 MB,
+  // so a worker can actually text or email their certificate.
+  pdf.addImage(canvas.toDataURL("image/jpeg", 0.92), "JPEG", (pw - w) / 2, (ph - h) / 2, w, h);
   pdf.save(filename + ".pdf");
 }
 
