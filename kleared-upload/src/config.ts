@@ -11,7 +11,7 @@
 // certificates are not saved). Good for showing GCs the flow.
 // ============================================================
 
-export const SCRIPT_URL = "";
+export const SCRIPT_URL = "https://script.google.com/macros/s/AKfycbwQoMn3F1ED4gV49WNyU04EvIRM9JtEjP-0VBV221oRc4TKrf1-fIEKBQpqcuO2XMAD0A/exec";
 
 // Certificate validity in days (365 = 1 year)
 export const CERT_VALID_DAYS = 365;
