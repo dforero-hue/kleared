@@ -18,7 +18,7 @@
 // certificate. See src/jbcContent.ts (auto-generated from their deck).
 import { JBC_MODULES, JBC_QUIZ } from "./jbcContent";
 
-export const SCRIPT_URL = "https://script.google.com/macros/s/AKfycbwQoMn3F1ED4gV49WNyU04EvIRM9JtEjP-0VBV221oRc4TKrf1-fIEKBQpqcuO2XMAD0A/exec";
+export const SCRIPT_URL = "https://script.google.com/macros/s/AKfycbzbPHNJ0znYOiJdptOq-fcgARAbudvxjeHi8Gt72x80SdaoAwfVcumnxN4H4yGKm2zTOw/exec";
 
 // Certificate validity in days (365 = 1 year)
 export const CERT_VALID_DAYS = 365;
