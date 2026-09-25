@@ -225,6 +225,8 @@ export interface CertRenderData {
   expires: string; // pre-formatted
   photo: string; // dataURL or ""
   verifyUrl: string;
+  demo?: boolean; // demo run — stamp a "NOT VALID" watermark on the file
+  demoLabel?: string; // localized watermark text
   labels: {
     docTitle: string;
     passed: string;
@@ -378,6 +380,27 @@ export async function renderCertToCanvas(d: CertRenderData): Promise<HTMLCanvasE
   ctx.fillText("KLEARED", W / 2, H - 78);
   ctx.fillStyle = GRAY; ctx.font = "400 18px 'Inter', Arial, sans-serif";
   ctx.fillText(`${d.labels.tagline}  ·  ${d.labels.org}`, W / 2, H - 50);
+
+  // Demo watermark — a big diagonal "NOT VALID" stamp so a demo download can
+  // never be passed off as a real certificate.
+  if (d.demo) {
+    const mark = d.demoLabel || "DEMO — NOT VALID";
+    ctx.save();
+    ctx.translate(W / 2, H / 2);
+    ctx.rotate(-Math.PI / 6);
+    ctx.globalAlpha = 0.18;
+    ctx.fillStyle = "#d11a2a";
+    ctx.textAlign = "center";
+    ctx.textBaseline = "middle";
+    let px = 108;
+    ctx.font = `900 ${px}px 'Anton', Arial, sans-serif`;
+    while (ctx.measureText(mark).width > W * 1.08 && px > 40) {
+      px -= 6;
+      ctx.font = `900 ${px}px 'Anton', Arial, sans-serif`;
+    }
+    ctx.fillText(mark, 0, 0);
+    ctx.restore();
+  }
 
   return canvas;
 }

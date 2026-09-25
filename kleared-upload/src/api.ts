@@ -1,6 +1,7 @@
 import {
   SCRIPT_URL, DEMO_SITES, DEMO_ADMINS, DEMO_MASTER_CODE, CERT_VALID_DAYS, STRIPE_ENABLED,
 } from "./config";
+import type { QuizQ } from "./content";
 
 /** A GC's own custom orientation page, shown after the 5 core safety modules. */
 export interface CustomModule {
@@ -18,6 +19,11 @@ export interface Site {
   notesEs: string;
   active?: boolean;
   modules?: CustomModule[];
+  // When true, this GC delivers its own COMPLETE orientation (its `modules`),
+  // so the worker sees those INSTEAD of the 5 generic core safety modules.
+  fullProgram?: boolean;
+  // A GC-specific quiz. When present, it replaces the default 5-question quiz.
+  quiz?: QuizQ[];
 }
 
 export interface OrientationPayload {
@@ -32,6 +38,9 @@ export interface OrientationPayload {
   score: string;
   signature: string; // data URL
   photo: string; // data URL (JPEG) or ""
+  consent: boolean; // worker ticked the consent box before photo/signature
+  consentVersion: string; // NOTICE_VERSION they agreed to
+  consentLang: string; // language the notice/consent was shown in
 }
 
 export interface CertResult {
@@ -61,6 +70,10 @@ export interface AdminSite {
   notesEn: string;
   notesEs: string;
   modules: CustomModule[];
+  // GC delivers its own complete orientation — its modules replace the core ones.
+  fullProgram: boolean;
+  // GC-specific quiz (replaces the default 5-question quiz when non-empty).
+  quiz: QuizQ[];
 }
 
 export interface Subscription {
@@ -80,7 +93,13 @@ export interface AdminSitesResult extends AdminAuth {
   subscription?: Subscription;
 }
 
-export const isDemo = () => !SCRIPT_URL;
+// Demo mode when there's no backend URL, OR when the page is opened with a
+// `demo=1` flag (query string or hash) — that lets you show the full flow, incl.
+// the Jones Bros demo site, on the LIVE deployment without saving real records.
+const demoFlag =
+  typeof window !== "undefined" &&
+  (window.location.search.includes("demo=1") || window.location.hash.includes("demo=1"));
+export const isDemo = () => !SCRIPT_URL || demoFlag;
 
 /* ---- shared transport ---- */
 // text/plain avoids a CORS preflight, which Apps Script can't answer.
@@ -159,6 +178,8 @@ export async function saveSite(
       notesEn: site.notesEn.trim(),
       notesEs: site.notesEs.trim(),
       modules: cleanModules(site.modules),
+      fullProgram: !!site.fullProgram,
+      quiz: Array.isArray(site.quiz) ? site.quiz : [],
     };
     const idx = demoSites.findIndex((s) => s.code.toUpperCase() === sc);
     if (idx >= 0) demoSites[idx] = clean;
@@ -204,9 +225,18 @@ const appReturnUrl = () => window.location.origin + window.location.pathname + "
 /* ---- demo helpers ---- */
 
 // A mutable in-memory copy so admin edits persist for the session in demo mode.
-let demoSites: AdminSite[] = DEMO_SITES.map((s) => ({ ...s, modules: cleanModules(s.modules) }));
+let demoSites: AdminSite[] = DEMO_SITES.map((s) => ({
+  ...s,
+  modules: cleanModules(s.modules),
+  fullProgram: !!(s as { fullProgram?: boolean }).fullProgram,
+  quiz: Array.isArray((s as { quiz?: QuizQ[] }).quiz) ? (s as { quiz?: QuizQ[] }).quiz! : [],
+}));
 
-const cloneSite = (s: AdminSite): AdminSite => ({ ...s, modules: s.modules.map((m) => ({ ...m })) });
+const cloneSite = (s: AdminSite): AdminSite => ({
+  ...s,
+  modules: s.modules.map((m) => ({ ...m })),
+  quiz: (s.quiz || []).map((q) => ({ ...q })),
+});
 
 const stripAdmin = (s: AdminSite): Site => ({
   code: s.code,
@@ -215,6 +245,8 @@ const stripAdmin = (s: AdminSite): Site => ({
   notesEn: s.notesEn,
   notesEs: s.notesEs,
   modules: s.modules.map((m) => ({ ...m })),
+  fullProgram: !!s.fullProgram,
+  quiz: (s.quiz || []).map((q) => ({ ...q })),
 });
 
 function cleanModules(mods: CustomModule[] | undefined): CustomModule[] {

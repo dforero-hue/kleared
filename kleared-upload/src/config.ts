@@ -11,6 +11,13 @@
 // certificates are not saved). Good for showing GCs the flow.
 // ============================================================
 
+// The full Jones Bros orientation (60 modules) + their own 5-question quiz, used
+// by the demo site below so you can walk Jones Bros through the real flow at
+// kleared.com/?demo=1 (or /#/?demo=1) BEFORE running the live import. `?demo=1`
+// forces demo mode even when SCRIPT_URL is set, so demo runs never save a real
+// certificate. See src/jbcContent.ts (auto-generated from their deck).
+import { JBC_MODULES, JBC_QUIZ } from "./jbcContent";
+
 export const SCRIPT_URL = "https://script.google.com/macros/s/AKfycbwQoMn3F1ED4gV49WNyU04EvIRM9JtEjP-0VBV221oRc4TKrf1-fIEKBQpqcuO2XMAD0A/exec";
 
 // Certificate validity in days (365 = 1 year)
@@ -33,6 +40,20 @@ export const PHOTO_JPEG_QUALITY = 0.7;
 // `modules` are the GC's own custom orientation pages (shown after the 5 core
 // safety modules) — this is the per-GC content beyond the short notes field.
 export const DEMO_SITES = [
+  {
+    // Jones Bros — full-program demo. Their entire 65-slide orientation as 60
+    // bilingual modules + their own quiz. `fullProgram: true` means these replace
+    // the 5 generic core modules. Show it at kleared.com/?demo=1.
+    code: "JBCDEMO",
+    gc: "Jones Bros Contractors (Demo)",
+    site: "New-Hire Safety Orientation — Demo",
+    active: true,
+    fullProgram: true,
+    notesEn: "Welcome to Jones Bros. Work through the full orientation, then sign and take the short quiz. Questions: HR@jonesbroscont.com · 615-773-3160.",
+    notesEs: "Bienvenido a Jones Bros. Complete la orientación completa, luego firme y tome el examen corto. Preguntas: HR@jonesbroscont.com · 615-773-3160.",
+    modules: JBC_MODULES,
+    quiz: JBC_QUIZ,
+  },
   {
     code: "DEMO1",
     gc: "Summit Builders (Demo)",
@@ -103,3 +124,16 @@ export const PLAN = {
   price: "$49",
   interval: "mo", // shown as "/mo"
 };
+
+// ---- Privacy / consent -------------------------------------------------
+// Who operates the app (shown in the privacy notice + consent record).
+export const ORG = {
+  name: "Division One Safety, LLC",
+  state: "Tennessee",
+  privacyEmail: "privacy@divisiononesafety.com", // ⚠️ create + monitor this inbox
+  mailingAddress: "[Add your business mailing address]", // ⚠️ fill this in
+};
+// Bump this string whenever the privacy notice text changes. It is stored with
+// each worker's consent so you can prove which version they agreed to.
+export const NOTICE_VERSION = "2026-09-v1";
+export const NOTICE_EFFECTIVE = "September 22, 2026";

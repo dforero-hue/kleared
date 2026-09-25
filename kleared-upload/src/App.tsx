@@ -1,11 +1,11 @@
 import { useEffect, useMemo, useState } from "react";
-import { t, MODULES, QUIZ, Lang } from "./content";
+import { t, MODULES, QUIZ, NOTICE, Lang, QuizQ } from "./content";
 import {
   fetchSites, submitOrientation, verifyCert,
   adminSites, saveSite, setSiteActive, startCheckout, manageBilling,
   isDemo, Site, CertResult, VerifyResult, AdminSite, AdminSitesResult, CustomModule, Subscription,
 } from "./api";
-import { QUIZ_PASS_SCORE, PHOTO_ENABLED, STRIPE_ENABLED, PLAN } from "./config";
+import { PHOTO_ENABLED, STRIPE_ENABLED, PLAN, NOTICE_VERSION, NOTICE_EFFECTIVE, ORG } from "./config";
 import {
   SignaturePad, PhotoCapture, QR, useHashRoute, go,
   CertRenderData, downloadCertPdf, downloadCertImage,
@@ -50,6 +50,8 @@ export default function App() {
         <Verify lang={lang} initialId={route.split("/")[2] || ""} />
       ) : route.startsWith("/pricing") ? (
         <Pricing lang={lang} />
+      ) : route.startsWith("/privacy") ? (
+        <Privacy lang={lang} />
       ) : (
         <Flow lang={lang} />
       )}
@@ -58,6 +60,8 @@ export default function App() {
         <b>KLEARED</b> · {t.tagline[lang]} <span className="dim">· Division One Safety, LLC</span>
       </p>
       <p className="footer-tag" style={{ marginTop: 4 }}>
+        <button className="link-admin" onClick={() => go("/privacy")}>{t.privacyLink[lang]}</button>
+        <span className="dim"> · </span>
         <button className="link-admin" onClick={() => go("/pricing")}>{t.pricingLink[lang]}</button>
         <span className="dim"> · </span>
         <button className="link-admin" onClick={() => go("/admin")}>{t.adminLink[lang]}</button>
@@ -75,6 +79,9 @@ function Flow({ lang }: { lang: Lang }) {
   const [site, setSite] = useState<Site | null>(null);
   const [info, setInfo] = useState<WorkerInfo>({ name: "", company: "", phone: "", trade: "" });
   const [infoErr, setInfoErr] = useState(false);
+  const [consent, setConsent] = useState(false);
+  const [consentErr, setConsentErr] = useState(false);
+  const [consentLang, setConsentLang] = useState<Lang>(lang); // language shown when consent was ticked
   const [modIdx, setModIdx] = useState(0);
   const [score, setScore] = useState(0);
   const [signature, setSignature] = useState<string | null>(null);
@@ -93,18 +100,35 @@ function Flow({ lang }: { lang: Lang }) {
     }
   }, [step, sites]);
 
-  // 5 core safety modules + this GC's own custom modules (if any).
+  // If the worker switches language while on the consent (info) step, un-tick
+  // consent so the box they agree to always matches the language on screen.
+  useEffect(() => {
+    if (step === "info") { setConsent(false); setConsentErr(false); }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [lang]);
+
+  // Normally: 5 core safety modules + this GC's own custom modules (if any).
+  // When the GC delivers a FULL PROGRAM (e.g. an uploaded orientation deck), their
+  // modules ARE the orientation, so they replace the core modules (and aren't
+  // tagged "from your GC" — the whole thing is theirs).
   const allModules: DisplayModule[] = useMemo(() => {
+    const fullProgram = !!site?.fullProgram;
     const custom: DisplayModule[] = (site?.modules || [])
       .filter((m) => (m.titleEn || m.titleEs) && (m.pointsEn.length || m.pointsEs.length))
       .map((m) => ({
         icon: "📋",
         title: { en: m.titleEn || m.titleEs, es: m.titleEs || m.titleEn },
         points: { en: m.pointsEn.length ? m.pointsEn : m.pointsEs, es: m.pointsEs.length ? m.pointsEs : m.pointsEn },
-        custom: true,
+        custom: !fullProgram,
       }));
-    return [...MODULES, ...custom];
+    return fullProgram && custom.length ? custom : [...MODULES, ...custom];
   }, [site]);
+
+  // The active quiz: a GC's own quiz when they have one, otherwise the default.
+  // Pass score is 80% of the questions (5 → 4, matching the default), so a
+  // GC-specific quiz of any length uses a sensible threshold.
+  const activeQuiz = useMemo(() => (site?.quiz?.length ? site.quiz : QUIZ), [site]);
+  const passScore = Math.max(1, Math.ceil(activeQuiz.length * 0.8));
 
   // site, info, modules…, quiz, [photo], sign
   const totalSteps = (PHOTO_ENABLED ? 5 : 4) + allModules.length;
@@ -118,6 +142,19 @@ function Flow({ lang }: { lang: Lang }) {
     return 0;
   }, [step, modIdx, allModules.length]);
 
+  // Clear ALL per-worker state so the next worker starts clean (shared device /
+  // gate kiosk). Keeps the cached `sites` list. Callers set the next step.
+  const resetFlow = () => {
+    setSite(null);
+    setInfo({ name: "", company: "", phone: "", trade: "" });
+    setInfoErr(false);
+    setConsent(false); setConsentErr(false); setConsentLang(lang);
+    setModIdx(0); setScore(0);
+    setSignature(null); setSignErr(false);
+    setPhoto(null); setPhotoErr(false);
+    setSubmitErr(false); setCert(null); setCertBusy(""); setCertDlErr(false);
+  };
+
   const finish = async () => {
     if (!signature) { setSignErr(true); return; }
     if (PHOTO_ENABLED && !photo) { setPhotoErr(true); setStep("photo"); window.scrollTo(0, 0); return; }
@@ -130,9 +167,12 @@ function Flow({ lang }: { lang: Lang }) {
         siteCode: site!.code,
         gc: site!.gc,
         site: site!.site,
-        score: `${score}/${QUIZ.length}`,
+        score: `${score}/${activeQuiz.length}`,
         signature,
         photo: photo || "",
+        consent,
+        consentVersion: NOTICE_VERSION,
+        consentLang, // the language shown when the box was ticked (not the live toggle)
       });
       setCert(result);
       setStep("cert");
@@ -155,7 +195,10 @@ function Flow({ lang }: { lang: Lang }) {
         <p className="sub mt">{t.heroSub[lang]}</p>
         {isDemo() && <div className="demo-banner">{t.demoBanner[lang]}</div>}
         <div className="mt">
-          <button className="btn btn-primary" onClick={() => setStep("site")}>
+          <button
+            className="btn btn-primary"
+            onClick={() => { resetFlow(); setStep("site"); }}
+          >
             {t.start[lang]} →
           </button>
           <button className="btn btn-ghost" onClick={() => go("/verify")}>
@@ -170,7 +213,8 @@ function Flow({ lang }: { lang: Lang }) {
       <>
         <h2 className="display">{t.certTitle[lang]}</h2>
         <p className="sub">{t.certSub[lang]}</p>
-        <div className="cert">
+        {isDemo() && <div className="demo-cert-banner">{t.demoCertBanner[lang]}</div>}
+        <div className={`cert${isDemo() ? " cert-demo" : ""}`}>
           <div className="cert-stripe" />
           <div className="cert-body">
             <div className="cert-brand">
@@ -213,6 +257,8 @@ function Flow({ lang }: { lang: Lang }) {
             issued: fmtDate(cert.issued, lang), expires: fmtDate(cert.expires, lang),
             photo: photo || "",
             verifyUrl: `${window.location.origin}${window.location.pathname}#/verify/${cert.certId}`,
+            demo: isDemo(),
+            demoLabel: t.demoWatermark[lang],
             labels: {
               docTitle: t.certDocTitle[lang], passed: t.passed[lang], gcSite: t.gcSite[lang],
               certId: t.certId[lang], issuedValid: `${t.issued[lang]} · ${t.validThru[lang]}`,
@@ -244,6 +290,11 @@ function Flow({ lang }: { lang: Lang }) {
         })()}
 
         <p className="sub mt center no-print">📸 {t.screenshotTip[lang]}</p>
+        <div className="mt no-print">
+          <button className="btn btn-ghost" onClick={() => { resetFlow(); setStep("site"); window.scrollTo(0, 0); }}>
+            {t.startAnother[lang]}
+          </button>
+        </div>
       </>
     );
 
@@ -294,11 +345,31 @@ function Flow({ lang }: { lang: Lang }) {
             ))}
             {infoErr && <p className="err">{t.required[lang]}</p>}
           </div>
+
+          <label className="consent">
+            <input
+              type="checkbox"
+              checked={consent}
+              onChange={(e) => {
+                setConsent(e.target.checked);
+                if (e.target.checked) { setConsentErr(false); setConsentLang(lang); }
+              }}
+            />
+            <span>
+              {t.consentText[lang]}{" "}
+              <button type="button" className="link-admin" onClick={() => go("/privacy")}>
+                {t.consentReadFull[lang]}
+              </button>
+            </span>
+          </label>
+          {consentErr && <p className="err">{t.consentRequired[lang]}</p>}
+
           <div className="mt">
             <button
               className="btn btn-primary"
               onClick={() => {
                 if (Object.values(info).some((v) => !v.trim())) { setInfoErr(true); return; }
+                if (!consent) { setConsentErr(true); return; }
                 setStep("modules"); window.scrollTo(0, 0);
               }}
             >
@@ -327,6 +398,8 @@ function Flow({ lang }: { lang: Lang }) {
       {step === "quiz" && (
         <Quiz
           lang={lang}
+          quiz={activeQuiz}
+          passScore={passScore}
           onPass={(s) => { setScore(s); setStep(PHOTO_ENABLED ? "photo" : "sign"); window.scrollTo(0, 0); }}
         />
       )}
@@ -335,6 +408,7 @@ function Flow({ lang }: { lang: Lang }) {
         <>
           <h2 className="display mt">{t.photoTitle[lang]}</h2>
           <p className="sub">{t.photoSub[lang]}</p>
+          <p className="privacy-note">🔒 {t.photoConsentNote[lang]}</p>
           <PhotoCapture
             value={photo}
             onChange={(d) => { setPhoto(d); if (d) setPhotoErr(false); }}
@@ -413,16 +487,18 @@ function ModuleScreen({
   );
 }
 
-function Quiz({ lang, onPass }: { lang: Lang; onPass: (score: number) => void }) {
-  const [answers, setAnswers] = useState<(number | null)[]>(QUIZ.map(() => null));
+function Quiz({
+  lang, quiz, passScore, onPass,
+}: { lang: Lang; quiz: QuizQ[]; passScore: number; onPass: (score: number) => void }) {
+  const [answers, setAnswers] = useState<(number | null)[]>(quiz.map(() => null));
   const [checked, setChecked] = useState(false);
 
-  const score = answers.filter((a, i) => a === QUIZ[i].answer).length;
+  const score = answers.filter((a, i) => a === quiz[i].answer).length;
   const allAnswered = answers.every((a) => a !== null);
-  const failed = checked && score < QUIZ_PASS_SCORE;
+  const failed = checked && score < passScore;
 
   const check = () => {
-    if (score >= QUIZ_PASS_SCORE) onPass(score);
+    if (score >= passScore) onPass(score);
     else { setChecked(true); window.scrollTo(0, 0); }
   };
 
@@ -430,7 +506,7 @@ function Quiz({ lang, onPass }: { lang: Lang; onPass: (score: number) => void })
     <>
       <h2 className="display mt">{failed ? t.failedTitle[lang] : t.quizTitle[lang]}</h2>
       <p className="sub">{failed ? t.failedSub[lang] : t.quizSub[lang]}</p>
-      {QUIZ.map((q, qi) => {
+      {quiz.map((q, qi) => {
         const miss = checked && answers[qi] !== q.answer;
         return (
           <div className={`card quiz-card${miss ? " miss" : ""}`} key={qi}>
@@ -536,7 +612,7 @@ function Verify({ lang, initialId }: { lang: Lang; initialId: string }) {
 /* ================= GC self-serve admin ================= */
 
 const blankSite = (gc: string): AdminSite => ({
-  code: "", gc, site: "", active: true, notesEn: "", notesEs: "", modules: [],
+  code: "", gc, site: "", active: true, notesEn: "", notesEs: "", modules: [], fullProgram: false, quiz: [],
 });
 
 function Admin({ lang }: { lang: Lang }) {
@@ -766,9 +842,24 @@ function SiteEditor({
         <textarea rows={3} value={s.notesEs} onChange={(e) => up({ notesEs: e.target.value })} />
       </div>
 
+      <label className="fullprogram-toggle">
+        <input
+          type="checkbox"
+          checked={s.fullProgram}
+          onChange={(e) => up({ fullProgram: e.target.checked })}
+        />
+        <span>
+          <strong>{t.adminFullProgram[lang]}</strong>
+          <span className="hint" style={{ display: "block", marginTop: 2 }}>{t.adminFullProgramHint[lang]}</span>
+        </span>
+      </label>
+
       <div className="modules-editor">
         <div className="editor-title" style={{ fontSize: 15 }}>{t.adminModulesTitle[lang]}</div>
         <p className="hint" style={{ marginTop: 0, marginBottom: 12 }}>{t.adminModulesHint[lang]}</p>
+        {s.modules.length > 12 && (
+          <p className="hint" style={{ marginTop: 0, marginBottom: 12 }}>{t.adminBigProgramHint[lang]}</p>
+        )}
         {s.modules.map((m, mi) => (
           <div className="module-block" key={mi}>
             <div className="module-block-head">
@@ -886,6 +977,45 @@ function Pricing({ lang }: { lang: Lang }) {
         <p className="sub center pricing-note">{t.pricingSignInFirst[lang]}</p>
         {!STRIPE_ENABLED && <p className="hint center">{t.pricingNotConfigured[lang]}</p>}
         <p className="pricing-secure">🔒 {t.pricingSecure[lang]}</p>
+      </div>
+      <div className="mt">
+        <button className="btn btn-ghost" onClick={() => go("/")}>← {t.home[lang]}</button>
+      </div>
+    </>
+  );
+}
+
+/* ================= privacy notice ================= */
+
+function Privacy({ lang }: { lang: Lang }) {
+  const n = NOTICE[lang];
+  return (
+    <>
+      <h2 className="display">{n.title}</h2>
+      <p className="sub">{n.intro}</p>
+      <div className="legal">
+        {n.sections.map((s, i) => (
+          <section key={i} className="legal-section">
+            <h3>{s.h}</h3>
+            {s.p.map((line, j) =>
+              line.startsWith("• ") ? (
+                <p key={j} className="legal-bullet">{line.slice(2)}</p>
+              ) : (
+                <p key={j}>{line}</p>
+              )
+            )}
+          </section>
+        ))}
+        <section className="legal-section">
+          <h3>{lang === "es" ? "Contacto y versión" : "Contact & version"}</h3>
+          <p>{ORG.name} · {ORG.state}</p>
+          <p>{ORG.privacyEmail}</p>
+          {!ORG.mailingAddress.startsWith("[") && <p>{ORG.mailingAddress}</p>}
+          <p className="legal-version">
+            {lang === "es" ? "Versión" : "Version"} {NOTICE_VERSION} · {NOTICE_EFFECTIVE}
+          </p>
+        </section>
+        <p className="legal-footer">{n.footer}</p>
       </div>
       <div className="mt">
         <button className="btn btn-ghost" onClick={() => go("/")}>← {t.home[lang]}</button>

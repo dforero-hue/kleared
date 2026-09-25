@@ -158,6 +158,14 @@ export const t = {
     es: "Certificado de Orientación de Seguridad",
   },
   certVerifyHint: { en: "Scan to verify", es: "Escanee para verificar" },
+  // Shown ONLY in demo mode (kleared.com/?demo=1). A demo run never saves a record,
+  // so the on-screen cert and the downloaded file are marked so they can't be
+  // mistaken for a real clearance.
+  demoCertBanner: {
+    en: "DEMO — this is not a real certificate. Nothing was saved and it won't verify.",
+    es: "DEMO — este no es un certificado real. No se guardó nada y no se puede verificar.",
+  },
+  demoWatermark: { en: "DEMO — NOT VALID", es: "DEMO — NO VÁLIDO" },
   certDownloadErr: {
     en: "Couldn't build the file. Try “Save image”, or screenshot the card.",
     es: "No se pudo generar el archivo. Use “Guardar imagen” o tome una captura.",
@@ -165,6 +173,18 @@ export const t = {
 
   /* ---- custom GC modules ---- */
   gcModuleTag: { en: "From your GC", es: "De su contratista" },
+  adminFullProgram: {
+    en: "This GC delivers its own complete orientation",
+    es: "Este GC entrega su propia orientación completa",
+  },
+  adminFullProgramHint: {
+    en: "On: the modules below ARE the orientation and replace Kleared's 5 core safety modules. Off: they're shown as extras after the core modules.",
+    es: "Activado: los módulos de abajo SON la orientación y reemplazan los 5 módulos básicos de Kleared. Desactivado: se muestran como extras después de los módulos básicos.",
+  },
+  adminBigProgramHint: {
+    en: "This is a large imported program. Editing it here page-by-page is fine, but for big rewrites ask your Kleared admin.",
+    es: "Este es un programa importado grande. Editarlo aquí página por página está bien, pero para cambios grandes consulte a su administrador de Kleared.",
+  },
   adminModulesTitle: { en: "Custom orientation modules", es: "Módulos de orientación personalizados" },
   adminModulesHint: {
     en: "Extra training pages your workers see after the 5 core safety modules. Optional — leave empty if the site rules above are enough.",
@@ -236,6 +256,220 @@ export const t = {
   billingComingSoon: {
     en: "Billing setup pending — you have full access in the meantime.",
     es: "Configuración de facturación pendiente — mientras tanto tiene acceso completo.",
+  },
+
+  /* ---- consent + privacy ---- */
+  consentText: {
+    en: "I am 18 or older. I agree that Division One Safety, LLC may collect my name, phone, employer, trade, photo, and signature to create my safety certificate and share it with the general contractor for this jobsite. I understand my name, employer, general contractor, jobsite, and certificate dates can be seen by anyone who has my certificate ID. I give this consent freely, before my photo and signature are taken.",
+    es: "Soy mayor de 18 años. Autorizo a Division One Safety, LLC a recopilar mi nombre, teléfono, empleador, oficio, foto y firma para crear mi certificado de seguridad y compartirlo con el contratista general de esta obra. Entiendo que mi nombre, empleador, contratista general, obra y fechas del certificado pueden ser vistos por cualquier persona que tenga el número de mi certificado. Doy este consentimiento de forma voluntaria, antes de que se tomen mi foto y mi firma.",
+  },
+  consentReadFull: { en: "Read the full Privacy Notice", es: "Leer el Aviso de Privacidad completo" },
+  consentRequired: {
+    en: "Please read and check the consent box to continue.",
+    es: "Lea y marque la casilla de consentimiento para continuar.",
+  },
+  privacyLink: { en: "Privacy Notice", es: "Aviso de Privacidad" },
+  privacyBack: { en: "Back", es: "Atrás" },
+  photoConsentNote: {
+    en: "Your photo appears on your own certificate and is shared with your general contractor. It is NOT shown to people who only look up your certificate ID.",
+    es: "Su foto aparece en su propio certificado y se comparte con su contratista general. NO se muestra a quienes solo consultan el número de su certificado.",
+  },
+  startAnother: { en: "Start a new orientation", es: "Iniciar una nueva orientación" },
+};
+
+/* ================= privacy notice ================= */
+
+export interface NoticeSection {
+  h: string;      // heading
+  p: string[];    // paragraphs and/or bullet lines (a line starting with "• " renders as a bullet)
+}
+
+// Plain-language, worker-readable privacy notice. Written to the strictest US
+// standard (Illinois BIPA-style) because workers may be in any state. This is a
+// solid DRAFT — have a lawyer review it, especially the biometric-photo parts,
+// and fill in ORG.mailingAddress / ORG.privacyEmail in config.ts.
+export const NOTICE: Record<Lang, { title: string; intro: string; sections: NoticeSection[]; footer: string }> = {
+  en: {
+    title: "Kleared Privacy Notice",
+    intro:
+      "This page explains, in plain language, what Kleared collects from you during your safety orientation, why, who can see it, how long we keep it, and the choices you have. Please read it before you agree.",
+    sections: [
+      {
+        h: "1. Who collects your information",
+        p: [
+          "Division One Safety, LLC, a Tennessee company (\"we\", \"us\"), operates Kleared and controls the information collected here.",
+          "Questions or requests: privacy@divisiononesafety.com.",
+        ],
+      },
+      {
+        h: "2. What we collect from you",
+        p: [
+          "• Your full name, phone number, employer (subcontractor), and trade",
+          "• Your preferred language (English or Spanish)",
+          "• A selfie photo of your face",
+          "• Your signature",
+          "• Your quiz score, the jobsite you selected, and the date and time",
+        ],
+      },
+      {
+        h: "3. Your photo and signature",
+        p: [
+          "Your face photo may count as \"biometric information\" under some state laws, so we treat it carefully.",
+          "We use your photo only to put it on your certificate and to help confirm your identity. We do NOT use facial recognition or face-scanning technology on it. We do NOT sell, rent, trade, or make money from your photo or signature, and we do not use them to train any software.",
+        ],
+      },
+      {
+        h: "4. Why we collect it",
+        p: [
+          "To create your safety-orientation certificate and to keep a record that you completed the orientation for a jobsite.",
+        ],
+      },
+      {
+        h: "5. Who can look up your certificate",
+        p: [
+          "Your certificate can be checked by anyone who has your certificate ID (for example, by scanning the QR code on your certificate). They will see your name, employer, general contractor, jobsite, and the certificate dates.",
+          "Your PHOTO is NOT shown to someone who only looks up your certificate ID. Your photo appears on your own certificate (the copy on your phone) and is shared with the general contractor for your jobsite.",
+        ],
+      },
+      {
+        h: "6. Who else gets your information",
+        p: [
+          "• The general contractor whose jobsite you are entering (for site access and safety records)",
+          "• Google LLC (Google Sheets / Apps Script) and Vercel Inc. (web hosting), who store and run the app for us on U.S. systems and may not use your information for their own purposes",
+        ],
+      },
+      {
+        h: "7. How long we keep it",
+        p: [
+          "Your certificate is valid for 1 year.",
+          "We keep your orientation record (name, employer, trade, jobsite, quiz score, signature, and dates) for as long as your certificate is valid plus about 5 years, to meet safety-recordkeeping and legal needs, and then we delete it.",
+          "We delete your PHOTO sooner — within 1 year after your certificate expires, and we never keep your photo longer than 3 years after your last activity with us.",
+        ],
+      },
+      {
+        h: "8. How we protect your information",
+        p: [
+          "We use encryption in transit (HTTPS), storage on Google's secured systems, and access limited to authorized Division One Safety staff. No system is perfectly secure. If a breach affects your information, we will notify you and any required authorities without unreasonable delay.",
+        ],
+      },
+      {
+        h: "9. Your choices and rights",
+        p: [
+          "You can ask us to show you, correct, or delete your information, and to stop using your photo and signature. Depending on your state, you may also have the right to appeal if we deny a request.",
+          "To make a request, email privacy@divisiononesafety.com. We will respond within 45 days (we may need up to 45 more days and will tell you if so). If we deny your request, you may ask us to reconsider by replying to our response. Deleting your record may cancel your certificate.",
+        ],
+      },
+      {
+        h: "10. If you don't want to agree",
+        p: [
+          "You don't have to agree. If you don't, you may not be able to finish this orientation for this jobsite. Talk to your employer, the general contractor, or contact us with any questions.",
+        ],
+      },
+      {
+        h: "11. Age",
+        p: [
+          "Kleared is only for people 18 or older. We do not knowingly collect information from anyone under 18. If we learn we have, we delete it.",
+        ],
+      },
+      {
+        h: "12. Changes to this notice",
+        p: [
+          "We may update this notice. When we do, we change the version and date below. Your consent record shows which version you agreed to.",
+        ],
+      },
+    ],
+    footer: "This is a plain-language summary provided in good faith and is not legal advice.",
+  },
+  es: {
+    title: "Aviso de Privacidad de Kleared",
+    intro:
+      "Esta página explica, en lenguaje sencillo, qué recopila Kleared durante su orientación de seguridad, por qué, quién puede verlo, cuánto tiempo lo guardamos y las opciones que usted tiene. Léala antes de aceptar.",
+    sections: [
+      {
+        h: "1. Quién recopila su información",
+        p: [
+          "Division One Safety, LLC, una empresa de Tennessee (\"nosotros\"), opera Kleared y controla la información que se recopila aquí.",
+          "Preguntas o solicitudes: privacy@divisiononesafety.com.",
+        ],
+      },
+      {
+        h: "2. Qué recopilamos de usted",
+        p: [
+          "• Su nombre completo, número de teléfono, empleador (subcontratista) y oficio",
+          "• Su idioma preferido (inglés o español)",
+          "• Una foto (selfie) de su cara",
+          "• Su firma",
+          "• Su puntaje del examen, la obra que seleccionó, y la fecha y hora",
+        ],
+      },
+      {
+        h: "3. Su foto y su firma",
+        p: [
+          "Su foto de la cara puede considerarse \"información biométrica\" bajo algunas leyes estatales, por eso la tratamos con cuidado.",
+          "Usamos su foto solo para ponerla en su certificado y ayudar a confirmar su identidad. NO usamos reconocimiento facial ni tecnología de escaneo de rostro. NO vendemos, alquilamos, intercambiamos ni ganamos dinero con su foto o firma, y no las usamos para entrenar ningún software.",
+        ],
+      },
+      {
+        h: "4. Por qué la recopilamos",
+        p: [
+          "Para crear su certificado de orientación de seguridad y mantener un registro de que completó la orientación para una obra.",
+        ],
+      },
+      {
+        h: "5. Quién puede consultar su certificado",
+        p: [
+          "Su certificado puede ser verificado por cualquier persona que tenga el número de su certificado (por ejemplo, escaneando el código QR de su certificado). Verán su nombre, empleador, contratista general, obra y las fechas del certificado.",
+          "Su FOTO NO se muestra a quien solo consulta el número de su certificado. Su foto aparece en su propio certificado (la copia en su teléfono) y se comparte con el contratista general de su obra.",
+        ],
+      },
+      {
+        h: "6. Quién más recibe su información",
+        p: [
+          "• El contratista general de la obra a la que ingresa (para acceso a la obra y registros de seguridad)",
+          "• Google LLC (Google Sheets / Apps Script) y Vercel Inc. (alojamiento web), que almacenan y ejecutan la aplicación para nosotros en sistemas de EE. UU. y no pueden usar su información para sus propios fines",
+        ],
+      },
+      {
+        h: "7. Cuánto tiempo la guardamos",
+        p: [
+          "Su certificado es válido por 1 año.",
+          "Guardamos su registro de orientación (nombre, empleador, oficio, obra, puntaje, firma y fechas) mientras su certificado sea válido más aproximadamente 5 años, para cumplir con obligaciones de registro de seguridad y legales, y luego lo eliminamos.",
+          "Eliminamos su FOTO antes — dentro de 1 año después de que venza su certificado, y nunca guardamos su foto por más de 3 años después de su última actividad con nosotros.",
+        ],
+      },
+      {
+        h: "8. Cómo protegemos su información",
+        p: [
+          "Usamos cifrado en tránsito (HTTPS), almacenamiento en los sistemas seguros de Google, y acceso limitado al personal autorizado de Division One Safety. Ningún sistema es perfectamente seguro. Si una filtración afecta su información, se lo notificaremos a usted y a las autoridades requeridas sin demora irrazonable.",
+        ],
+      },
+      {
+        h: "9. Sus opciones y derechos",
+        p: [
+          "Puede pedirnos ver, corregir o eliminar su información, y dejar de usar su foto y firma. Según su estado, también puede tener derecho a apelar si negamos una solicitud.",
+          "Para hacer una solicitud, escriba a privacy@divisiononesafety.com. Responderemos dentro de 45 días (podríamos necesitar hasta 45 días más y se lo avisaremos). Si negamos su solicitud, puede pedirnos que la reconsideremos respondiendo a nuestra respuesta. Eliminar su registro puede cancelar su certificado.",
+        ],
+      },
+      {
+        h: "10. Si no desea aceptar",
+        p: [
+          "No está obligado a aceptar. Si no acepta, es posible que no pueda terminar esta orientación para esta obra. Hable con su empleador, el contratista general, o contáctenos con cualquier pregunta.",
+        ],
+      },
+      {
+        h: "11. Edad",
+        p: [
+          "Kleared es solo para personas de 18 años o más. No recopilamos a sabiendas información de menores de 18 años. Si nos enteramos de que lo hicimos, la eliminamos.",
+        ],
+      },
+      {
+        h: "12. Cambios a este aviso",
+        p: [
+          "Podemos actualizar este aviso. Cuando lo hagamos, cambiaremos la versión y la fecha de abajo. Su registro de consentimiento muestra qué versión aceptó.",
+        ],
+      },
+    ],
+    footer: "Este es un resumen en lenguaje sencillo proporcionado de buena fe y no constituye asesoría legal.",
   },
 };
 
