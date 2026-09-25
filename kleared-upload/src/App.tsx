@@ -5,7 +5,7 @@ import {
   adminSites, saveSite, setSiteActive, startCheckout, manageBilling,
   isDemo, Site, CertResult, VerifyResult, AdminSite, AdminSitesResult, CustomModule, Subscription,
 } from "./api";
-import { PHOTO_ENABLED, STRIPE_ENABLED, PLAN, NOTICE_VERSION, NOTICE_EFFECTIVE, ORG } from "./config";
+import { PHOTO_ENABLED, STRIPE_ENABLED, PLAN, NOTICE_VERSION, NOTICE_EFFECTIVE, ORG, ROLE_DROPDOWN } from "./config";
 import {
   SignaturePad, PhotoCapture, QR, useHashRoute, go,
   CertRenderData, downloadCertPdf, downloadCertImage,
@@ -129,6 +129,11 @@ function Flow({ lang }: { lang: Lang }) {
   // GC-specific quiz of any length uses a sensible threshold.
   const activeQuiz = useMemo(() => (site?.quiz?.length ? site.quiz : QUIZ), [site]);
   const passScore = Math.max(1, Math.ceil(activeQuiz.length * 0.8));
+
+  // Jobsites listed in ROLE_DROPDOWN (e.g. Jones Bros) collect the worker's role
+  // from a fixed dropdown and skip the company/trade text fields — the worker is
+  // the GC's own employee, so their company is the GC itself.
+  const roleOpts = site ? ROLE_DROPDOWN[site.code.toUpperCase()] : undefined;
 
   // site, info, modules…, quiz, [photo], sign
   const totalSteps = (PHOTO_ENABLED ? 5 : 4) + allModules.length;
@@ -325,12 +330,17 @@ function Flow({ lang }: { lang: Lang }) {
           <h2 className="display mt">{t.yourInfo[lang]}</h2>
           <div className="card">
             {(
-              [
-                ["name", t.fullName[lang], "text"],
-                ["company", t.company[lang], "text"],
-                ["phone", t.phone[lang], "tel"],
-                ["trade", t.trade[lang], "text"],
-              ] as const
+              (roleOpts
+                ? [
+                    ["name", t.fullName[lang], "text"],
+                    ["phone", t.phone[lang], "tel"],
+                  ]
+                : [
+                    ["name", t.fullName[lang], "text"],
+                    ["company", t.company[lang], "text"],
+                    ["phone", t.phone[lang], "tel"],
+                    ["trade", t.trade[lang], "text"],
+                  ]) as [keyof WorkerInfo, string, string][]
             ).map(([key, label, type]) => (
               <div className="field" key={key}>
                 <label htmlFor={key}>{label}</label>
@@ -343,6 +353,22 @@ function Flow({ lang }: { lang: Lang }) {
                 />
               </div>
             ))}
+            {roleOpts && (
+              <div className="field">
+                <label htmlFor="role">{t.role[lang]}</label>
+                <select
+                  id="role"
+                  className="role-select"
+                  value={info.trade}
+                  onChange={(e) => setInfo({ ...info, trade: e.target.value })}
+                >
+                  <option value="">{t.roleSelect[lang]}</option>
+                  {roleOpts.map((o) => (
+                    <option key={o.en} value={o.en}>{lang === "es" ? o.es : o.en}</option>
+                  ))}
+                </select>
+              </div>
+            )}
             {infoErr && <p className="err">{t.required[lang]}</p>}
           </div>
 
@@ -368,8 +394,15 @@ function Flow({ lang }: { lang: Lang }) {
             <button
               className="btn btn-primary"
               onClick={() => {
-                if (Object.values(info).some((v) => !v.trim())) { setInfoErr(true); return; }
+                // Role sites: company is the GC itself (worker is their employee),
+                // so require name/phone/role and fill company automatically.
+                const eff = roleOpts && site ? { ...info, company: site.gc } : info;
+                const missing = roleOpts
+                  ? [eff.name, eff.phone, eff.trade].some((v) => !v.trim())
+                  : Object.values(eff).some((v) => !v.trim());
+                if (missing) { setInfoErr(true); return; }
                 if (!consent) { setConsentErr(true); return; }
+                if (roleOpts && site && info.company !== site.gc) setInfo(eff);
                 setStep("modules"); window.scrollTo(0, 0);
               }}
             >

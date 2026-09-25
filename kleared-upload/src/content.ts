@@ -22,6 +22,8 @@ export const t = {
   company: { en: "Your company (subcontractor)", es: "Su empresa (subcontratista)" },
   phone: { en: "Phone number", es: "Número de teléfono" },
   trade: { en: "Trade / job", es: "Oficio / trabajo" },
+  role: { en: "Your role", es: "Su puesto" },
+  roleSelect: { en: "Select your role…", es: "Seleccione su puesto…" },
   continue: { en: "Continue", es: "Continuar" },
   back: { en: "Back", es: "Atrás" },
   next: { en: "Next", es: "Siguiente" },

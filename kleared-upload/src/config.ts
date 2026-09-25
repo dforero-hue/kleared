@@ -35,6 +35,25 @@ export const PHOTO_ENABLED = true;
 export const PHOTO_MAX_PX = 400;
 export const PHOTO_JPEG_QUALITY = 0.7;
 
+// ---- Per-site role dropdown -------------------------------------------
+// Some GCs run their OWN new-hire orientation for their OWN employees (not
+// subcontractors). For those jobsites we drop the free-text "Company" and
+// "Trade" fields and instead offer a fixed role dropdown; the worker's company
+// is set automatically to the GC's name. Keyed by SITE CODE (uppercase). Add a
+// site's code here to turn this on for that jobsite only.
+export interface RoleOption { en: string; es: string; }
+const JBC_ROLES: RoleOption[] = [
+  { en: "Laborer", es: "Obrero" },
+  { en: "Equipment Operator", es: "Operador de equipo" },
+  { en: "Foreman / Lead Person", es: "Capataz / Líder" },
+  { en: "Supervisor", es: "Supervisor" },
+  { en: "Office Personnel", es: "Personal de oficina" },
+];
+export const ROLE_DROPDOWN: Record<string, RoleOption[]> = {
+  JBC: JBC_ROLES,       // live Jones Bros jobsite
+  JBCDEMO: JBC_ROLES,   // Jones Bros demo site (?demo=1)
+};
+
 // Demo sites shown when SCRIPT_URL is empty. `active: false` sites are hidden
 // from workers but visible in the admin portal (so you can see the toggle work).
 // `modules` are the GC's own custom orientation pages (shown after the 5 core
