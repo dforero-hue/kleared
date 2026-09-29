@@ -547,13 +547,24 @@ function serverCleanQuiz_(quiz) {
     // (1.5) that no integer selection could ever match (which would lock every
     // worker out of that site).
     if (typeof ans !== "number" || !Number.isInteger(ans) || ans < 0 || ans >= en.length) continue;
-    clean.push({
+    const item = {
       q: { en: String(prompt.en), es: String(prompt.es) },
       options: { en: en, es: es },
       answer: ans,
-    });
+    };
+    const sec = cleanSection_(q.section);
+    if (sec) item.section = sec;
+    clean.push(item);
   }
   return clean;
+}
+
+// An optional bilingual block label {en, es}, kept only if both are non-empty.
+function cleanSection_(s) {
+  if (!s) return null;
+  const en = String(s.en || "").trim();
+  const es = String(s.es || "").trim();
+  return (en && es) ? { en: en, es: es } : null;
 }
 
 function serverCleanModules_(mods) {
@@ -569,6 +580,8 @@ function serverCleanModules_(mods) {
       pointsEn: pointsEn,
       pointsEs: pointsEs,
     };
+    const sec = cleanSection_(m.section);
+    if (sec) item.section = sec;
     // Keep only modules workers will actually see: a title AND at least one point.
     if ((item.titleEn || item.titleEs) && (pointsEn.length || pointsEs.length)) clean.push(item);
   }

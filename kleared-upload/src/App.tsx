@@ -11,9 +11,11 @@ import {
   CertRenderData, downloadCertPdf, downloadCertImage,
 } from "./components";
 
-type Step = "home" | "site" | "info" | "modules" | "quiz" | "photo" | "sign" | "cert";
+type Step = "home" | "site" | "info" | "flow" | "photo" | "sign" | "cert";
 
 interface WorkerInfo { name: string; company: string; phone: string; trade: string; }
+
+interface Section { en: string; es: string; }
 
 // A base or GC-custom module, in the shape the worker module screen renders.
 interface DisplayModule {
@@ -21,7 +23,15 @@ interface DisplayModule {
   title: Record<Lang, string>;
   points: Record<Lang, string[]>;
   custom?: boolean;
+  section?: Section;
 }
+
+// The worker walks a single ordered list of screens: module pages and, when the
+// program is split into blocks, a quiz after each block. A non-sectioned program
+// is just its module pages followed by one quiz at the end.
+type FlowScreen =
+  | { kind: "module"; module: DisplayModule; section?: Section; label: string; showNotes: boolean }
+  | { kind: "quiz"; quiz: QuizQ[]; passScore: number; section?: Section };
 
 const fmtDate = (iso: string, lang: Lang) =>
   new Date(iso).toLocaleDateString(lang === "es" ? "es-US" : "en-US", {
@@ -82,8 +92,10 @@ function Flow({ lang }: { lang: Lang }) {
   const [consent, setConsent] = useState(false);
   const [consentErr, setConsentErr] = useState(false);
   const [consentLang, setConsentLang] = useState<Lang>(lang); // language shown when consent was ticked
-  const [modIdx, setModIdx] = useState(0);
-  const [score, setScore] = useState(0);
+  const [flowIdx, setFlowIdx] = useState(0);
+  // correct answers per quiz screen, keyed by its flow index (so re-passing a
+  // quiz overwrites instead of double-counting).
+  const [quizScores, setQuizScores] = useState<Record<number, number>>({});
   const [signature, setSignature] = useState<string | null>(null);
   const [signErr, setSignErr] = useState(false);
   const [photo, setPhoto] = useState<string | null>(null);
@@ -120,32 +132,71 @@ function Flow({ lang }: { lang: Lang }) {
         title: { en: m.titleEn || m.titleEs, es: m.titleEs || m.titleEn },
         points: { en: m.pointsEn.length ? m.pointsEn : m.pointsEs, es: m.pointsEs.length ? m.pointsEs : m.pointsEn },
         custom: !fullProgram,
+        section: m.section,
       }));
     return fullProgram && custom.length ? custom : [...MODULES, ...custom];
   }, [site]);
 
   // The active quiz: a GC's own quiz when they have one, otherwise the default.
-  // Pass score is 80% of the questions (5 → 4, matching the default), so a
-  // GC-specific quiz of any length uses a sensible threshold.
   const activeQuiz = useMemo(() => (site?.quiz?.length ? site.quiz : QUIZ), [site]);
-  const passScore = Math.max(1, Math.ceil(activeQuiz.length * 0.8));
+
+  const pass = (n: number) => Math.max(1, Math.ceil(n * 0.8)); // 80% to pass
+
+  // Build the ordered walk of screens. When the program's modules AND quiz both
+  // carry sections, each block's modules are followed by that block's quiz;
+  // otherwise it's all the modules then a single quiz at the end (default flow).
+  const flow: FlowScreen[] = useMemo(() => {
+    const sectioned = allModules.some((m) => m.section) && activeQuiz.some((q) => q.section);
+    const screens: FlowScreen[] = [];
+    const pushModules = (mods: DisplayModule[]) => {
+      mods.forEach((m, i) =>
+        screens.push({
+          kind: "module", module: m, section: m.section, showNotes: false,
+          label: `${t.module[lang]} ${i + 1} ${t.of[lang]} ${mods.length}`,
+        })
+      );
+    };
+    if (!sectioned) {
+      pushModules(allModules);
+      if (activeQuiz.length) screens.push({ kind: "quiz", quiz: activeQuiz, passScore: pass(activeQuiz.length) });
+    } else {
+      const order: string[] = [];
+      allModules.forEach((m) => { const k = m.section ? m.section.en : "•"; if (!order.includes(k)) order.push(k); });
+      order.forEach((k) => {
+        const mods = allModules.filter((m) => (m.section ? m.section.en : "•") === k);
+        pushModules(mods);
+        const qs = activeQuiz.filter((q) => q.section && q.section.en === k);
+        if (qs.length) screens.push({ kind: "quiz", quiz: qs, passScore: pass(qs.length), section: mods[0]?.section });
+      });
+    }
+    // The site's own notes ride on the very last module page of the whole flow.
+    for (let i = screens.length - 1; i >= 0; i--) {
+      const s = screens[i];
+      if (s.kind === "module") { s.showNotes = true; break; }
+    }
+    return screens;
+  }, [allModules, activeQuiz, lang]);
+
+  const totalQuizQuestions = useMemo(
+    () => flow.reduce((n, s) => n + (s.kind === "quiz" ? s.quiz.length : 0), 0),
+    [flow]
+  );
 
   // Jobsites listed in ROLE_DROPDOWN (e.g. Jones Bros) collect the worker's role
   // from a fixed dropdown and skip the company/trade text fields — the worker is
   // the GC's own employee, so their company is the GC itself.
   const roleOpts = site ? ROLE_DROPDOWN[site.code.toUpperCase()] : undefined;
 
-  // site, info, modules…, quiz, [photo], sign
-  const totalSteps = (PHOTO_ENABLED ? 5 : 4) + allModules.length;
+  // site, info, [flow screens…], [photo], sign
+  const totalSteps = 2 + flow.length + (PHOTO_ENABLED ? 2 : 1);
   const stepNum = useMemo(() => {
     if (step === "site") return 1;
     if (step === "info") return 2;
-    if (step === "modules") return 3 + modIdx;
-    if (step === "quiz") return 3 + allModules.length;
-    if (step === "photo") return 4 + allModules.length;
-    if (step === "sign") return (PHOTO_ENABLED ? 5 : 4) + allModules.length;
+    if (step === "flow") return 3 + flowIdx;
+    if (step === "photo") return 3 + flow.length;
+    if (step === "sign") return 3 + flow.length + (PHOTO_ENABLED ? 1 : 0);
     return 0;
-  }, [step, modIdx, allModules.length]);
+  }, [step, flowIdx, flow.length]);
 
   // Clear ALL per-worker state so the next worker starts clean (shared device /
   // gate kiosk). Keeps the cached `sites` list. Callers set the next step.
@@ -154,7 +205,7 @@ function Flow({ lang }: { lang: Lang }) {
     setInfo({ name: "", company: "", phone: "", trade: "" });
     setInfoErr(false);
     setConsent(false); setConsentErr(false); setConsentLang(lang);
-    setModIdx(0); setScore(0);
+    setFlowIdx(0); setQuizScores({});
     setSignature(null); setSignErr(false);
     setPhoto(null); setPhotoErr(false);
     setSubmitErr(false); setCert(null); setCertBusy(""); setCertDlErr(false);
@@ -172,7 +223,7 @@ function Flow({ lang }: { lang: Lang }) {
         siteCode: site!.code,
         gc: site!.gc,
         site: site!.site,
-        score: `${score}/${activeQuiz.length}`,
+        score: `${Object.values(quizScores).reduce((a, b) => a + b, 0)}/${totalQuizQuestions}`,
         signature,
         photo: photo || "",
         consent,
@@ -317,7 +368,7 @@ function Flow({ lang }: { lang: Lang }) {
           {siteErr && <p className="err">{t.errNetwork[lang]}</p>}
           {!sites && !siteErr && <p className="sub mt">{t.loadingSites[lang]}</p>}
           {sites?.map((s) => (
-            <button key={s.code} className="site-btn" onClick={() => { setSite(s); setModIdx(0); setStep("info"); window.scrollTo(0, 0); }}>
+            <button key={s.code} className="site-btn" onClick={() => { setSite(s); setFlowIdx(0); setStep("info"); window.scrollTo(0, 0); }}>
               <div className="gc">{s.gc}</div>
               <div className="st">{s.site}</div>
             </button>
@@ -403,7 +454,7 @@ function Flow({ lang }: { lang: Lang }) {
                 if (missing) { setInfoErr(true); return; }
                 if (!consent) { setConsentErr(true); return; }
                 if (roleOpts && site && info.company !== site.gc) setInfo(eff);
-                setStep("modules"); window.scrollTo(0, 0);
+                setFlowIdx(0); setStep("flow"); window.scrollTo(0, 0);
               }}
             >
               {t.continue[lang]} →
@@ -413,29 +464,49 @@ function Flow({ lang }: { lang: Lang }) {
         </>
       )}
 
-      {step === "modules" && site && (
-        <ModuleScreen
-          lang={lang}
-          idx={modIdx}
-          modules={allModules}
-          site={site}
-          onBack={() => (modIdx === 0 ? setStep("info") : setModIdx(modIdx - 1))}
-          onNext={() => {
-            if (modIdx >= allModules.length - 1) setStep("quiz");
-            else setModIdx(modIdx + 1);
-            window.scrollTo(0, 0);
-          }}
-        />
-      )}
-
-      {step === "quiz" && (
-        <Quiz
-          lang={lang}
-          quiz={activeQuiz}
-          passScore={passScore}
-          onPass={(s) => { setScore(s); setStep(PHOTO_ENABLED ? "photo" : "sign"); window.scrollTo(0, 0); }}
-        />
-      )}
+      {step === "flow" && site && flow[flowIdx] && (() => {
+        const screen = flow[flowIdx];
+        const isLast = flowIdx >= flow.length - 1;
+        const advance = () => {
+          if (isLast) setStep(PHOTO_ENABLED ? "photo" : "sign");
+          else setFlowIdx(flowIdx + 1);
+          window.scrollTo(0, 0);
+        };
+        // Back skips over quizzes (you can't re-open a block you've passed by
+        // clicking Back) and lands on the previous module page, or the info step.
+        const back = () => {
+          let j = flowIdx - 1;
+          while (j >= 0 && flow[j].kind === "quiz") j--;
+          if (j < 0) setStep("info");
+          else setFlowIdx(j);
+          window.scrollTo(0, 0);
+        };
+        if (screen.kind === "module") {
+          return (
+            <ModuleScreen
+              lang={lang}
+              module={screen.module}
+              label={screen.label}
+              section={screen.section}
+              notes={screen.showNotes ? (lang === "es" ? site.notesEs : site.notesEn) : ""}
+              onBack={back}
+              onNext={advance}
+            />
+          );
+        }
+        return (
+          <Quiz
+            lang={lang}
+            quiz={screen.quiz}
+            passScore={screen.passScore}
+            section={screen.section}
+            onPass={(s) => {
+              setQuizScores((prev) => ({ ...prev, [flowIdx]: s }));
+              advance();
+            }}
+          />
+        );
+      })()}
 
       {step === "photo" && (
         <>
@@ -487,16 +558,17 @@ function Flow({ lang }: { lang: Lang }) {
 }
 
 function ModuleScreen({
-  lang, idx, modules, site, onBack, onNext,
-}: { lang: Lang; idx: number; modules: DisplayModule[]; site: Site; onBack: () => void; onNext: () => void }) {
-  const m = modules[idx];
-  const notes = lang === "es" ? site.notesEs : site.notesEn;
-  const isLast = idx === modules.length - 1;
+  lang, module: m, label, section, notes, onBack, onNext,
+}: {
+  lang: Lang; module: DisplayModule; label: string; section?: Section;
+  notes: string; onBack: () => void; onNext: () => void;
+}) {
   if (!m) return null;
   return (
     <>
-      <p className="progress-label mt" style={{ display: "block", marginTop: 20 }}>
-        {t.module[lang]} {idx + 1} {t.of[lang]} {modules.length}
+      {section && <p className="section-label mt">{section[lang]}</p>}
+      <p className="progress-label" style={{ display: "block", marginTop: section ? 4 : 20 }}>
+        {label}
       </p>
       <div className="card">
         <div className="mod-icon" aria-hidden>{m.icon}</div>
@@ -505,7 +577,7 @@ function ModuleScreen({
         <ul className="mod-points">
           {m.points[lang].map((p, i) => <li key={i}>{p}</li>)}
         </ul>
-        {isLast && notes && (
+        {notes && (
           <div className="gc-notes">
             <span className="tag">⚠ {t.siteNotes[lang]}</span>
             {notes}
@@ -521,8 +593,8 @@ function ModuleScreen({
 }
 
 function Quiz({
-  lang, quiz, passScore, onPass,
-}: { lang: Lang; quiz: QuizQ[]; passScore: number; onPass: (score: number) => void }) {
+  lang, quiz, passScore, section, onPass,
+}: { lang: Lang; quiz: QuizQ[]; passScore: number; section?: Section; onPass: (score: number) => void }) {
   const [answers, setAnswers] = useState<(number | null)[]>(quiz.map(() => null));
   const [checked, setChecked] = useState(false);
 
@@ -537,6 +609,7 @@ function Quiz({
 
   return (
     <>
+      {section && <p className="section-label mt">{section[lang]} — {t.quizTitle[lang].toLowerCase()}</p>}
       <h2 className="display mt">{failed ? t.failedTitle[lang] : t.quizTitle[lang]}</h2>
       <p className="sub">
         {failed

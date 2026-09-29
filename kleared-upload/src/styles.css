@@ -130,6 +130,12 @@ h2.display { font-size: 26px; margin-bottom: 6px; }
 .progress { height: 10px; border-radius: 999px; background: var(--panel-2); overflow: hidden; margin: 18px 0 6px; }
 .progress > div { height: 100%; background: var(--stripe); background-size: 40px 40px; transition: width 0.35s ease; }
 .progress-label { font: 600 12px "Inter", sans-serif; color: var(--muted); text-transform: uppercase; letter-spacing: 0.06em; }
+/* Block header shown above a module page or its quiz (sectioned programs). */
+.section-label {
+  display: block; margin: 20px 0 0;
+  font: 800 13px "Inter", sans-serif; color: var(--hivis);
+  text-transform: uppercase; letter-spacing: 0.05em;
+}
 
 /* ---------- site picker ---------- */
 .site-btn {

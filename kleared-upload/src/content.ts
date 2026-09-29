@@ -568,6 +568,9 @@ export interface QuizQ {
   q: Record<Lang, string>;
   options: Record<Lang, string[]>;
   answer: number;
+  // Optional block this question belongs to (matches a module's section). When
+  // present, the question is asked in that block's quiz instead of a final quiz.
+  section?: { en: string; es: string };
 }
 
 export const QUIZ: QuizQ[] = [

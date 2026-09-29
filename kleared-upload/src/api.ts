@@ -3,12 +3,19 @@ import {
 } from "./config";
 import type { QuizQ } from "./content";
 
+/** A bilingual block/section label (e.g. "Part 1 · How the company works"). */
+export interface Section { en: string; es: string; }
+
 /** A GC's own custom orientation page, shown after the 5 core safety modules. */
 export interface CustomModule {
   titleEn: string;
   titleEs: string;
   pointsEn: string[];
   pointsEs: string[];
+  // Optional block this module belongs to. When a program's modules AND quiz
+  // questions carry matching sections, the worker takes each block's quiz right
+  // after that block's modules, instead of one quiz at the very end.
+  section?: Section;
 }
 
 export interface Site {
@@ -257,6 +264,7 @@ function cleanModules(mods: CustomModule[] | undefined): CustomModule[] {
       titleEs: (m.titleEs || "").trim(),
       pointsEn: (m.pointsEn || []).map((p) => p.trim()).filter(Boolean),
       pointsEs: (m.pointsEs || []).map((p) => p.trim()).filter(Boolean),
+      ...(m.section ? { section: m.section } : {}),
     }))
     // Keep only modules that will actually render for workers: a title AND at
     // least one point. This matches the worker-flow filter, so nothing is ever
