@@ -538,7 +538,11 @@ function Quiz({
   return (
     <>
       <h2 className="display mt">{failed ? t.failedTitle[lang] : t.quizTitle[lang]}</h2>
-      <p className="sub">{failed ? t.failedSub[lang] : t.quizSub[lang]}</p>
+      <p className="sub">
+        {failed
+          ? t.failedSub[lang]
+          : t.quizSub[lang].replace("{n}", String(quiz.length)).replace("{p}", String(passScore))}
+      </p>
       {quiz.map((q, qi) => {
         const miss = checked && answers[qi] !== q.answer;
         return (

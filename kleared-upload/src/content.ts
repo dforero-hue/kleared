@@ -33,8 +33,8 @@ export const t = {
   siteNotes: { en: "Site-specific rules from your GC", es: "Reglas específicas de la obra de su contratista" },
   quizTitle: { en: "Safety check", es: "Comprobación de seguridad" },
   quizSub: {
-    en: "Answer 5 questions. You need 4 correct to pass. You can retry.",
-    es: "Responda 5 preguntas. Necesita 4 correctas para aprobar. Puede volver a intentarlo.",
+    en: "Answer {n} questions. You need {p} correct to pass. You can retry.",
+    es: "Responda {n} preguntas. Necesita {p} correctas para aprobar. Puede volver a intentarlo.",
   },
   submitAnswers: { en: "Check my answers", es: "Revisar mis respuestas" },
   passed: { en: "Passed", es: "Aprobado" },
