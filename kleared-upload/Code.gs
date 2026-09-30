@@ -28,7 +28,10 @@
  */
 
 const SHEET_ID = "19s-pIcsFy8tWyo-mO38ko5gNz29HBWgJnuMi-ZH0dJQ";
-const NOTIFY_EMAILS = "dforero@divisiononesafety.com, admin@divisiononesafety.com";
+// Owner address(es) that get EVERY completed orientation, for all GCs. A GC can
+// ALSO get a copy of only THEIR orientations via a per-GC "Notify Email" in the
+// Admins tab (see gcNotifyEmail_).
+const NOTIFY_EMAILS = "dforero@divisiononesafety.com";
 const CERT_VALID_DAYS = 365;
 
 // Owner/master admin code — sees and edits EVERY GC's jobsites.
@@ -37,6 +40,8 @@ const CERT_VALID_DAYS = 365;
 // DISABLED. Never reuse the throwaway demo code from src/config.ts.
 const MASTER_ADMIN_CODE = "";
 
+// Admins column (1-based) for a GC's optional notification email.
+const ADMIN_NOTIFY_COL = 4;
 // Orientations columns (1-based).
 const PHOTO_COL = 15;
 const CONSENT_COL = 16; // "YES"/"NO" · then Notice Version (17) · Consent Lang (18)
@@ -50,7 +55,7 @@ const FULLPROG_COL = 8;
 // Sites column (1-based) for a GC-specific quiz (JSON). When present it replaces
 // the default 5-question quiz for that jobsite. Compressed like the modules cell.
 const QUIZ_COL = 9;
-const MAX_QUIZ = 20; // max quiz questions kept per site
+const MAX_QUIZ = 40; // max quiz questions kept per site (JBC has 25)
 // Max custom modules kept per site. A GC's full uploaded program can be long
 // (e.g. Jones Bros' 60-page orientation), so this is generous. The modules JSON
 // is gzip-compressed into the cell when large (see encodeModules_), so a big
@@ -106,9 +111,17 @@ function getSheets_() {
   let admins = ss.getSheetByName("Admins");
   if (!admins) {
     admins = ss.insertSheet("Admins");
-    admins.appendRow(["Code", "GC Name", "Active"]);
-    admins.appendRow(["EXAMPLE", "Example GC, Inc.", "YES"]);
+    admins.appendRow(["Code", "GC Name", "Active", "Notify Email"]);
+    admins.appendRow(["EXAMPLE", "Example GC, Inc.", "YES", ""]);
     admins.setFrozenRows(1);
+  }
+  // Migrate an older Admins tab so the optional per-GC "Notify Email" column (D)
+  // exists. A GC's completed orientations are also emailed to that address.
+  if (admins.getMaxColumns() < ADMIN_NOTIFY_COL) {
+    admins.insertColumnsAfter(admins.getMaxColumns(), ADMIN_NOTIFY_COL - admins.getMaxColumns());
+  }
+  if (String(admins.getRange(1, ADMIN_NOTIFY_COL).getValue()) !== "Notify Email") {
+    admins.getRange(1, ADMIN_NOTIFY_COL).setValue("Notify Email");
   }
 
   let log = ss.getSheetByName("Orientations");
@@ -841,11 +854,35 @@ function makeCertId_(d) {
   return "KLR-" + ymd + "-" + rand;
 }
 
+// The GC's own notification email from the Admins tab (first matching row with a
+// non-empty address), or "" if none. That GC's orientations are also sent there.
+function gcNotifyEmail_(gc) {
+  try {
+    const { admins } = getSheets_();
+    const rows = admins.getDataRange().getValues();
+    const want = String(gc || "").trim().toLowerCase();
+    for (let i = 1; i < rows.length; i++) {
+      if (String(rows[i][1]).trim().toLowerCase() === want) {
+        const email = String(rows[i][ADMIN_NOTIFY_COL - 1] || "").trim();
+        if (email) return email;
+      }
+    }
+  } catch (err) { /* fall through to owner-only */ }
+  return "";
+}
+
 function sendNotification_(certId, p, issued, expires) {
   try {
+    // Owner always; the GC's own address too (only their orientations). De-duped.
+    const seen = {};
+    const to = (NOTIFY_EMAILS + "," + gcNotifyEmail_(p.gc))
+      .split(",")
+      .map(function (e) { return e.trim(); })
+      .filter(function (e) { if (!e || seen[e.toLowerCase()]) return false; seen[e.toLowerCase()] = true; return true; })
+      .join(",");
     const subject = "✅ Kleared: " + p.name + " — " + p.gc;
     const body =
-      "New orientation completed.\n\n" +
+      "New orientation completed. The worker's certificate is attached as a PDF.\n\n" +
       "Worker: " + p.name + " (" + p.company + " — " + p.trade + ")\n" +
       "Phone: " + p.phone + "\n" +
       "Language: " + p.lang.toUpperCase() + "\n" +
@@ -854,10 +891,57 @@ function sendNotification_(certId, p, issued, expires) {
       "Cert ID: " + certId + "\n" +
       "Valid: " + Utilities.formatDate(issued, "America/Chicago", "MMM d, yyyy") +
       " → " + Utilities.formatDate(expires, "America/Chicago", "MMM d, yyyy") + "\n";
-    MailApp.sendEmail(NOTIFY_EMAILS, subject, body);
+    // Attach the certificate PDF. If PDF generation fails for any reason, still
+    // send the text email so the notification isn't lost.
+    let opts = {};
+    try { opts = { attachments: [certPdf_(certId, p, issued, expires)] }; }
+    catch (e) { Logger.log("Cert PDF failed: " + e); }
+    MailApp.sendEmail(to, subject, body, opts);
   } catch (err) {
     Logger.log("Email failed: " + err);
   }
+}
+
+// Build the worker's certificate as a PDF (server-side HTML → PDF), so it can be
+// attached to the notification email. Mirrors the on-screen certificate.
+function certPdf_(certId, p, issued, expires) {
+  const fmt = function (d) { return Utilities.formatDate(d, "America/Chicago", "MMM d, yyyy"); };
+  const base = String(prop_("APP_BASE_URL") || "https://kleared.com").replace(/\/+$/, "");
+  const verifyUrl = base + "/#/verify/" + certId;
+  const esc = function (s) {
+    return String(s == null ? "" : s).replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
+  };
+  const row = function (label, val) {
+    return '<div style="margin:8px 0;"><div style="color:#5b6673;font-size:11px;text-transform:uppercase;letter-spacing:0.05em;">' +
+      label + '</div><div style="font-size:16px;color:#10151b;">' + val + '</div></div>';
+  };
+  const photo = (p.photo && String(p.photo).indexOf("data:image/") === 0)
+    ? '<img src="' + p.photo + '" style="width:120px;height:120px;object-fit:cover;border-radius:10px;border:1px solid #ccc;" />'
+    : '';
+  const html =
+    '<html><head><meta charset="utf-8"></head>' +
+    '<body style="font-family:Arial,Helvetica,sans-serif;color:#10151b;margin:0;">' +
+    '<div style="height:16px;background:#ffd60a;"></div>' +
+    '<div style="padding:44px 48px;">' +
+    '<div style="font-size:34px;font-weight:bold;letter-spacing:1px;">KLEARED ' +
+    '<span style="color:#1a9e57;font-size:18px;font-weight:bold;">&#10003; PASSED</span></div>' +
+    '<div style="color:#5b6673;font-size:14px;margin-bottom:26px;">Certificate of Safety Orientation</div>' +
+    '<table style="width:100%;border-collapse:collapse;"><tr>' +
+    '<td style="vertical-align:top;">' +
+    '<div style="font-size:28px;font-weight:bold;">' + esc(p.name) + '</div>' +
+    '<div style="color:#5b6673;font-size:15px;margin-bottom:18px;">' + esc(p.company) + ' &middot; ' + esc(p.trade) + '</div>' +
+    row("GC / Jobsite", esc(p.gc) + ' &middot; ' + esc(p.site)) +
+    row("Certificate ID", '<span style="font-family:monospace;">' + esc(certId) + '</span>') +
+    row("Quiz score", esc(p.score)) +
+    row("Issued &middot; Valid through", fmt(issued) + ' &rarr; ' + fmt(expires)) +
+    '</td>' +
+    '<td style="vertical-align:top;text-align:right;width:130px;">' + photo + '</td>' +
+    '</tr></table>' +
+    '<div style="margin-top:30px;border-top:2px solid #ffd60a;padding-top:12px;color:#5b6673;font-size:12px;">' +
+    'Verify at ' + esc(verifyUrl) + '<br>Division One Safety, LLC &middot; Everyone makes it home.' +
+    '</div></div></body></html>';
+  return Utilities.newBlob(html, "text/html", "Kleared-" + certId + ".html")
+    .getAs("application/pdf").setName("Kleared-" + certId + ".pdf");
 }
 
 function json_(obj) {

@@ -1,25 +1,18 @@
 /**
  * JonesBros.gs — one-click import of the Jones Bros Contractors new-hire safety
- * orientation into Kleared. Generated from JBC_Orientacion_Seguridad_2026.pptx
- * (65 slides, EN + ES). Add this file to the SAME Apps Script project as Code.gs,
- * then run importJonesBros() once. It:
- *   - creates (or updates) a Sites row for Jones Bros with all 60 modules,
- *   - flags it as a FULL PROGRAM (workers see this instead of the 5 generic
- *     core modules),
- *   - loads their own 25-question quiz (replaces the default quiz), and
- *   - adds a portal login code so Jones Bros can manage their own jobsites.
- * The modules are gzip-compressed into the cell automatically (encodeModules_),
- * so the whole program fits in one Google Sheet cell. Re-running is safe - it
- * upserts by SITE code, it does not duplicate.
- *
- * Tweak the 4 constants below BEFORE running if you already set Jones Bros up in
- * the portal (set JBC_CODE to that jobsite's existing code to update it in place).
+ * orientation into Kleared. Generated from JBC_Orientacion_Seguridad_2026.pptx.
+ * Add this file to the SAME Apps Script project as Code.gs, then run
+ * importJonesBros() once. It creates/updates the Jones Bros GC + jobsite with all
+ * 60 modules (in 3 blocks) and their 25-question quiz, turns on
+ * full-program mode, sets a portal login code, and sets the GC notification email
+ * so Jones Bros gets an email for each of THEIR orientations. Re-running is safe.
  */
 
 const JBC_GC = "Jones Bros Contractors";
 const JBC_CODE = "JBC";                                   // Sites tab column A (site code)
 const JBC_SITE = "Jones Bros — New-Hire Safety Orientation";
 const JBC_ADMIN_CODE = "JONESBROS";                        // portal login code for Jones Bros
+const JBC_NOTIFY_EMAIL = "rkelly@jonesbroscont.com";       // gets an email for each Jones Bros orientation
 const JBC_NOTES_EN = "Welcome to Jones Bros. Work through the full orientation below, then sign and take the short quiz. Questions: HR@jonesbroscont.com · 615-773-3160.";
 const JBC_NOTES_ES = "Bienvenido a Jones Bros. Complete la orientación completa abajo, luego firme y tome el examen corto. Preguntas: HR@jonesbroscont.com · 615-773-3160.";
 
@@ -28,16 +21,16 @@ function importJonesBros() {
   const sites = sheets.sites;
   const admins = sheets.admins;
 
-  // 1) Portal login for Jones Bros (upsert by code).
+  // 1) Portal login + notification email for Jones Bros (upsert by code).
   var aRows = admins.getDataRange().getValues();
   var aFound = false;
   for (var i = 1; i < aRows.length; i++) {
     if (String(aRows[i][0]).trim().toUpperCase() === JBC_ADMIN_CODE.toUpperCase()) {
-      admins.getRange(i + 1, 1, 1, 3).setValues([[JBC_ADMIN_CODE, JBC_GC, "YES"]]);
+      admins.getRange(i + 1, 1, 1, 4).setValues([[JBC_ADMIN_CODE, JBC_GC, "YES", JBC_NOTIFY_EMAIL]]);
       aFound = true; break;
     }
   }
-  if (!aFound) admins.appendRow([JBC_ADMIN_CODE, JBC_GC, "YES"]);
+  if (!aFound) admins.appendRow([JBC_ADMIN_CODE, JBC_GC, "YES", JBC_NOTIFY_EMAIL]);
 
   // 2) Sites row: full program + quiz (upsert by site code), compressed + flagged.
   return withLock_(function () {
@@ -54,13 +47,13 @@ function importJonesBros() {
     else sites.appendRow(values);
     SpreadsheetApp.flush();
     Logger.log("Jones Bros imported: " + modules.length + " modules + " + quiz.length +
-      "-question quiz, full-program ON, login code " + JBC_ADMIN_CODE +
-      ". Now redeploy (Manage deployments -> New version).");
+      "-question quiz, full-program ON, login code " + JBC_ADMIN_CODE + ", notify " +
+      JBC_NOTIFY_EMAIL + ". Now redeploy (Manage deployments -> New version).");
     return { ok: true, modules: modules.length, quiz: quiz.length };
   });
 }
 
-// 60 orientation modules (bilingual). Data only - do not edit by hand.
+// 60 orientation modules (bilingual, 3 blocks). Data only - do not edit by hand.
 const JBC_PROGRAM = [
   {"section":{"en":"Part 1 · How the company works","es":"Parte 1 · Cómo funciona la compañía"},"titleEn":"Welcome — what we cover today","titleEs":"Bienvenido — lo que cubrimos hoy","pointsEn":["Block 1 — How the company works: HR, drug policy, benefits, probation period.","Block 2 — Jones Bros safety rules: reporting, Focus 4, PPE, equipment, HazCom.","Block 3 — Recognizing hazards: the 4 deadly hazards, heavy equipment, trenches, falls, confined spaces, fire.","At the end: attendance signature and a short exam.","Goal: that you go home every day the same way you arrived."],"pointsEs":["Bloque 1 — Cómo funciona la compañía: Recursos Humanos, política de drogas, beneficios, período de prueba.","Bloque 2 — Las reglas de seguridad de Jones Bros: reportes, Focus 4, EPP, equipo, HazCom.","Bloque 3 — Reconocer los peligros: los 4 peligros mortales, equipo pesado, zanjas, caídas, espacios confinados, fuego.","Al terminar: firma de asistencia y examen corto.","Objetivo: que usted regrese a su casa cada día igual que como llegó."]},
   {"section":{"en":"Part 1 · How the company works","es":"Parte 1 · Cómo funciona la compañía"},"titleEn":"Company · Office contacts","titleEs":"Compañía · Contactos de la oficina","pointsEn":["Human Resources (HR): HR@jonesbroscont.com · 615-773-3160 — benefits, pay, vacation, complaints. Call ahead for an appointment.","Compliance: Compliance@jonesbroscont.com · 615-864-7388 — TDOT audits, OJT training.","EEO Officer: Alexandria Burd."],"pointsEs":["Recursos Humanos (HR): HR@jonesbroscont.com · 615-773-3160 — preguntas de beneficios, pago, vacaciones, quejas. Llame antes para hacer una cita.","Cumplimiento (Compliance): Compliance@jonesbroscont.com · 615-864-7388 — auditorías de TDOT, entrenamiento OJT.","Oficial de EEO: Alexandria Burd."]},
@@ -124,7 +117,7 @@ const JBC_PROGRAM = [
   {"section":{"en":"Part 3 · Recognizing hazards","es":"Parte 3 · Reconocer los peligros"},"titleEn":"What you take away today","titleEs":"Lo que se lleva hoy","pointsEn":["You have the authority to STOP WORK — use it.","Report EVERYTHING the same day: Roman Kelly 270-227-3886 → Colin Rice 615-585-6930 → Andrew Wall. Written report within 24 hours.","Focus 4 non-negotiables send you home without pay — carry your card.","Green hard hat 90 days · Class III vest on the road · Face shield when cutting or grinding · Seatbelt always.","Trench: 5 ft protection · 4 ft exit · 3 ft ladder · 2 ft material · 1 competent person · 0 excuses.","10 feet from power lines. Never under a load. Never in a red zone without eye contact.","Don't know or don't understand? ASK. HR: HR@jonesbroscont.com · 615-773-3160.","Division One Safety, LLC · Daniel Forero, CHST · 615-480-3269."],"pointsEs":["Usted tiene autoridad para PARAR EL TRABAJO — úsela.","Reporte TODO el mismo día: Roman Kelly 270-227-3886 → Colin Rice 615-585-6930 → Andrew Wall. Reporte escrito en 24 horas.","Los no negociables del Focus 4 lo mandan a casa sin pago — lleve su tarjeta.","Casco verde 90 días · Chaleco Clase III en carretera · Careta al cortar o esmerilar · Cinturón siempre.","Zanja: 5 pies protección · 4 pies salida · 3 pies escalera · 2 pies material · 1 persona competente · 0 excusas.","10 pies de líneas eléctricas. Nunca bajo una carga. Nunca en una zona roja sin contacto visual.","¿No sabe o no entiende? PREGUNTE. HR: HR@jonesbroscont.com · 615-773-3160.","Division One Safety, LLC · Daniel Forero, CHST · 615-480-3269."]}
 ];
 
-// 25 Jones-Bros-specific quiz questions. Data only - do not edit by hand.
+// 25 Jones-Bros-specific quiz questions (split across the 3 blocks). Data only.
 const JBC_QUIZ = [
   {"section":{"en":"Part 1 · How the company works","es":"Parte 1 · Cómo funciona la compañía"},"q":{"en":"What does the GREEN hard hat mean at Jones Bros?","es":"¿Qué significa el casco VERDE en Jones Bros?"},"options":{"en":["You are a supervisor","You are trained in first aid","You are in your first 90 days — new to Jones Bros","You work near traffic"],"es":["Que es supervisor","Que está entrenado en primeros auxilios","Que está en sus primeros 90 días — nuevo en Jones Bros","Que trabaja cerca del tráfico"]},"answer":2},
   {"section":{"en":"Part 1 · How the company works","es":"Parte 1 · Cómo funciona la compañía"},"q":{"en":"How long is the new-employee evaluation (probation) period?","es":"¿Cuánto dura el período de evaluación (prueba) del empleado nuevo?"},"options":{"en":["30 days","60 days","90 days","6 months"],"es":["30 días","60 días","90 días","6 meses"]},"answer":2},
