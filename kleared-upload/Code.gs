@@ -181,7 +181,10 @@ function doPost(e) {
     if (op === "billingPortal") return json_(billingPortalSession_(p.code, p.returnUrl));
     return json_(logOrientation_(p));
   } catch (err) {
-    return json_({ error: String(err) });
+    // Log details server-side; return a generic message so the public endpoint
+    // doesn't leak internal exception text / stack details to anonymous callers.
+    Logger.log("doPost error: " + err);
+    return json_({ error: "server_error" });
   }
 }
 
@@ -201,21 +204,38 @@ function logOrientation_(p) {
   const expires = new Date(now.getTime() + CERT_VALID_DAYS * 24 * 60 * 60 * 1000);
   const certId = makeCertId_(now);
 
+  // SECURITY: the GC name, jobsite name, and site code come from the VALIDATED
+  // site row — never from the client payload — so an anonymous submitter can't
+  // attribute the certificate to (or route its email to) a different GC.
+  const code = String(srow[0] || p.siteCode);
+  const gc = String(srow[1] || "");
+  const site = String(srow[2] || "");
+  // Only a well-formed image data URI is kept (rejects HTML-injection payloads).
+  const photo = validPhoto_(p.photo);
+  // The sanitized record used for the Sheet write, the certificate, and the email.
+  const rec = {
+    name: p.name, company: p.company, phone: p.phone, trade: p.trade,
+    lang: p.lang, gc: gc, site: site, score: p.score, photo: photo,
+  };
+
   // Serialize the append so two workers submitting at the same instant can't
   // interleave/clobber rows. The lock covers ONLY the write; the slow email is
   // sent afterward so submissions don't queue behind each other's emails.
   withLock_(function () {
     const { log } = getSheets_();
+    // safeCell_ neutralizes spreadsheet/CSV formula injection on worker-supplied
+    // text (a value starting with = + - @ is stored as text, like the phone).
     const base = [
-      now, certId, p.name, p.company, "'" + p.phone, p.trade, p.lang,
-      p.siteCode, p.gc, p.site, p.score, now, expires, p.signature || "",
+      now, certId, safeCell_(rec.name), safeCell_(rec.company), "'" + rec.phone,
+      safeCell_(rec.trade), safeCell_(rec.lang), code, safeCell_(gc), safeCell_(site),
+      rec.score, now, expires, p.signature || "",
     ];
     const tail = [p.consent ? "YES" : "NO", p.consentVersion || "", p.consentLang || ""];
     try {
       // ONE atomic append including the photo (col 15), so the photo is always
       // on THIS worker's row — no getLastRow() lookup that could race a
       // concurrent submission if the lock wasn't acquired.
-      log.appendRow(base.concat([p.photo || ""], tail));
+      log.appendRow(base.concat([photo], tail));
     } catch (bigPhotoErr) {
       // A too-large photo would otherwise fail the whole append — record the
       // orientation without the photo rather than lose it.
@@ -225,7 +245,7 @@ function logOrientation_(p) {
     SpreadsheetApp.flush();
   });
 
-  sendNotification_(certId, p, now, expires);
+  sendNotification_(certId, rec, now, expires);
 
   return { certId: certId, issued: now.toISOString(), expires: expires.toISOString() };
 }
@@ -330,9 +350,30 @@ function verify_(id) {
 
 /* ---------------- admin (GC self-serve) ---------------- */
 
+// Brute-force throttle for the admin access-code gate. Access codes are the ONLY
+// auth on the admin portal, so a sustained run of failures (an online guessing
+// attack against the public endpoint) trips a short global cooldown. This is
+// defense-in-depth — the primary protection is using long, random codes (NOT
+// dictionary words like "SUMMIT"); see KLEARED-SETUP.md.
+const ADMIN_FAIL_MAX = 40;         // block once this many failures accrue in the window
+const ADMIN_FAIL_WINDOW_SEC = 600; // sliding ~10-minute window
+
+function adminThrottled_() {
+  try {
+    return Number(CacheService.getScriptCache().get("adminFails") || 0) >= ADMIN_FAIL_MAX;
+  } catch (e) { return false; }
+}
+function adminAuthFailed_() {
+  try {
+    const cache = CacheService.getScriptCache();
+    cache.put("adminFails", String(Number(cache.get("adminFails") || 0) + 1), ADMIN_FAIL_WINDOW_SEC);
+  } catch (e) { /* best effort; CacheService is evictable */ }
+}
+
 function adminAuth_(code) {
   const c = String(code || "").trim().toUpperCase();
   if (!c) return { ok: false };
+  if (adminThrottled_()) return { ok: false }; // too many recent failed codes
   // Master code comes from Script Properties first, then the constant. Blank = disabled.
   const master = String(prop_("MASTER_ADMIN_CODE") || MASTER_ADMIN_CODE || "").trim().toUpperCase();
   if (master && c === master) {
@@ -346,6 +387,7 @@ function adminAuth_(code) {
       return { ok: true, gc: String(rows[i][1]), master: false };
     }
   }
+  adminAuthFailed_(); // record the miss toward the throttle
   return { ok: false };
 }
 
@@ -629,12 +671,15 @@ function stripeApi_(method, path, params) {
 }
 
 function sanitizeReturn_(url) {
-  // If you set APP_BASE_URL in Script Properties, redirects are LOCKED to your
-  // own domain and any client-supplied target is ignored (prevents open redirect).
-  const base = String(prop_("APP_BASE_URL") || "").trim();
-  if (base) return base.indexOf("#") >= 0 ? base : base.replace(/\/+$/, "") + "/#/admin";
+  // Default-deny open redirect: a client-supplied returnUrl is accepted ONLY when
+  // its origin exactly matches ours, whether or not APP_BASE_URL is set. Set
+  // APP_BASE_URL (Script Properties) to your exact origin (e.g. https://kleared.com
+  // or https://www.kleared.com) so legitimate returns aren't rewritten.
+  const origin = (String(prop_("APP_BASE_URL") || "").trim().replace(/\/+$/, "")) || "https://kleared.com";
+  const fallback = origin + "/#/admin";
   const u = String(url || "");
-  return /^https?:\/\//i.test(u) ? u : "https://kleared.com/#/admin";
+  if (u === origin || u.indexOf(origin + "/") === 0 || u.indexOf(origin + "#") === 0) return u;
+  return fallback;
 }
 
 function createCheckoutSession_(code, returnUrl) {
@@ -701,22 +746,29 @@ function handleStripeWebhook_(e) {
     if (type === "checkout.session.completed") {
       const sessionId = event.data.object.id;
       const session = stripeApi_("get", "checkout/sessions/" + sessionId, null);
-      if (session && session.id) {
+      // Grant access ONLY if Stripe confirms the session actually COMPLETED and
+      // is paid (or no payment was required, e.g. a trial), AND a real
+      // subscription exists. A forged "completed" event for an unpaid/abandoned
+      // session is "open" with no subscription, so it is rejected here. The
+      // account status is taken from the re-fetched subscription, never assumed.
+      const paidOk = session && session.id && session.status === "complete" &&
+        (session.payment_status === "paid" || session.payment_status === "no_payment_required") &&
+        session.subscription;
+      if (paidOk) {
         const gc = (session.metadata && session.metadata.gc) || session.client_reference_id || "";
-        let status = "active";
-        if (session.subscription) {
-          const sub = stripeApi_("get", "subscriptions/" + session.subscription, null);
-          if (sub && sub.status) status = sub.status;
-        }
+        const sub = stripeApi_("get", "subscriptions/" + session.subscription, null);
+        const status = (sub && sub.status) ? sub.status : "active";
         upsertBilling_(gc, session.customer, session.subscription, status);
       }
     } else if (type.indexOf("customer.subscription.") === 0) {
       const subId = event.data.object.id;
       const sub = stripeApi_("get", "subscriptions/" + subId, null);
+      // Trust the RE-FETCHED subscription's status, never the request body's type
+      // (a forged "deleted" event can't downgrade a subscription Stripe still
+      // reports as active).
       if (sub && sub.id) {
         const gc = (sub.metadata && sub.metadata.gc) || "";
-        const status = type === "customer.subscription.deleted" ? "canceled" : sub.status;
-        upsertBilling_(gc, sub.customer, sub.id, status);
+        upsertBilling_(gc, sub.customer, sub.id, sub.status || "canceled");
       }
     }
   } catch (err) {
@@ -809,6 +861,24 @@ function siteQuizLen_(row) {
 // false-rejects a genuine (even minimal) signature.
 function isRealSignature_(sig) {
   return typeof sig === "string" && sig.indexOf("data:image/") === 0 && sig.length > 100;
+}
+
+// Keep a worker photo only if it is a well-formed base64 image data URI. A prefix
+// check alone (indexOf "data:image/") would let a crafted value like
+// data:image/png;base64,x"><img src=... break out of the certificate's <img src>
+// attribute (HTML injection into the emailed PDF). The strict pattern below
+// contains no quote or "<", so it cannot break out of an HTML attribute.
+function validPhoto_(photo) {
+  const s = String(photo || "");
+  return /^data:image\/(png|jpe?g|gif|webp);base64,[A-Za-z0-9+\/=\s]+$/.test(s) ? s : "";
+}
+
+// Neutralize spreadsheet/CSV formula injection: a cell value starting with
+// = + - @ (or a tab/CR) is prefixed with an apostrophe so Sheets/Excel treat it
+// as literal text instead of a live formula (=IMPORTXML/=HYPERLINK/etc.).
+function safeCell_(v) {
+  v = String(v == null ? "" : v);
+  return /^[=+\-@\t\r]/.test(v) ? "'" + v : v;
 }
 
 // Parse a "X/Y" score string and require at least 80% correct (matching the
@@ -909,14 +979,19 @@ function certPdf_(certId, p, issued, expires) {
   const base = String(prop_("APP_BASE_URL") || "https://kleared.com").replace(/\/+$/, "");
   const verifyUrl = base + "/#/verify/" + certId;
   const esc = function (s) {
-    return String(s == null ? "" : s).replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
+    return String(s == null ? "" : s)
+      .replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;")
+      .replace(/"/g, "&quot;").replace(/'/g, "&#39;");
   };
   const row = function (label, val) {
     return '<div style="margin:8px 0;"><div style="color:#5b6673;font-size:11px;text-transform:uppercase;letter-spacing:0.05em;">' +
       label + '</div><div style="font-size:16px;color:#10151b;">' + val + '</div></div>';
   };
-  const photo = (p.photo && String(p.photo).indexOf("data:image/") === 0)
-    ? '<img src="' + p.photo + '" style="width:120px;height:120px;object-fit:cover;border-radius:10px;border:1px solid #ccc;" />'
+  // validPhoto_ returns "" unless the value is a strict base64 image data URI
+  // (no quote or "<"), so it cannot break out of the src attribute below.
+  const safePhoto = validPhoto_(p.photo);
+  const photo = safePhoto
+    ? '<img src="' + safePhoto + '" style="width:120px;height:120px;object-fit:cover;border-radius:10px;border:1px solid #ccc;" />'
     : '';
   const html =
     '<html><head><meta charset="utf-8"></head>' +

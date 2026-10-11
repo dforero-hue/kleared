@@ -12,7 +12,7 @@ const JBC_GC = "Jones Bros Contractors";
 const JBC_CODE = "JBC";                                   // Sites tab column A (site code)
 const JBC_SITE = "Jones Bros — New-Hire Safety Orientation";
 const JBC_ADMIN_CODE = "JONESBROS";                        // portal login code for Jones Bros
-const JBC_NOTIFY_EMAIL = "rkelly@jonesbroscont.com";       // gets an email for each Jones Bros orientation
+const JBC_NOTIFY_EMAIL = "rkelly@jonesbroscont.com, aburd@jonesbroscont.com";       // gets an email for each Jones Bros orientation
 const JBC_NOTES_EN = "Welcome to Jones Bros. Work through the full orientation below, then sign and take the short quiz. Questions: HR@jonesbroscont.com · 615-773-3160.";
 const JBC_NOTES_ES = "Bienvenido a Jones Bros. Complete la orientación completa abajo, luego firme y tome el examen corto. Preguntas: HR@jonesbroscont.com · 615-773-3160.";
 
